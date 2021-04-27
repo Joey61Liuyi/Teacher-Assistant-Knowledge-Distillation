@@ -6,6 +6,10 @@ import argparse
 import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
+import torch.utils
+import utils
+from model import NetworkCIFAR as Network
+import genotypes
 from data_loader import get_cifar
 from model_factory import create_cnn_model, is_resnet
 
@@ -26,10 +30,11 @@ def parse_arguments():
 	parser.add_argument('--momentum', default=0.9, type=float,  help='SGD momentum')
 	parser.add_argument('--weight-decay', default=1e-4, type=float, help='SGD weight decay (default: 1e-4)')
 	parser.add_argument('--teacher', default='resnet110', type=str, help='teacher student name')
-	parser.add_argument('--student', '--model', default='Plane6', type=str, help='teacher student name')
+	parser.add_argument('--student', '--model', default='DARTS', type=str, help='teacher student name')
 	parser.add_argument('--teacher-checkpoint', default='resnet110_cifar10_T_best.pth.tar', type=str, help='optinal pretrained checkpoint for teacher')
 	parser.add_argument('--cuda', default=1, type=str2bool, help='whether or not use cuda(train on GPU)')
 	parser.add_argument('--dataset-dir', default='./data', type=str,  help='dataset directory')
+	parser.add_argument('--arch', type=str, default='DARTS', help='which architecture to use')
 	args = parser.parse_args()
 	return args
 
@@ -92,8 +97,7 @@ class TrainManager(object):
 				if self.have_teacher:
 					teacher_outputs = self.teacher(data)
 					# Knowledge Distillation Loss
-					loss_KD = nn.KLDivLoss()(F.log_softmax(output / T, dim=1),
-													  F.softmax(teacher_outputs / T, dim=1))
+					loss_KD = nn.KLDivLoss()(F.log_softmax(output / T, dim=1), F.softmax(teacher_outputs / T, dim=1))
 					loss = (1 - lambda_) * loss_SL + lambda_ * T * T * loss_KD
 					
 				loss.backward()
@@ -170,11 +174,20 @@ if __name__ == "__main__":
 
 	torch.manual_seed(config['seed'])
 	torch.cuda.manual_seed(config['seed'])
-	trial_id = os.environ.get('NNI_TRIAL_JOB_ID')
+	# trial_id = os.environ.get('NNI_TRIAL_JOB_ID')
+	trial_id = '01'
 	dataset = args.dataset
 	num_classes = 100 if dataset == 'cifar100' else 'cifar10'
 	teacher_model = None
-	student_model = create_cnn_model(args.student, dataset, use_cuda=args.cuda)
+	# student_model = create_cnn_model(args.student, dataset, use_cuda=args.cuda)
+	genotype = eval("genotypes.%s" % args.arch)
+	student_model = Network(36, 10, 20, True, genotype)
+	student_model.cuda()
+	utils.load(student_model, 'cifar10_model.pt')
+	student_model.drop_path_prob = 0.2
+
+
+
 	train_config = {
 		'epochs': args.epochs,
 		'learning_rate': args.learning_rate,
