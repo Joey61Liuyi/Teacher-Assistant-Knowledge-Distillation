@@ -5,7 +5,7 @@ import torchvision.transforms as transforms
 NUM_WORKERS = 2
 
 
-def get_cifar(num_classes=100, dataset_dir='./data', batch_size=128, crop=False):
+def get_cifar(num_classes=100, dataset_dir='./data', batch_size=20, crop=False):
 	"""
 	:param num_classes: 10 for cifar10, 100 for cifar100
 	:param dataset_dir: location of datasets, default is a directory named 'data'

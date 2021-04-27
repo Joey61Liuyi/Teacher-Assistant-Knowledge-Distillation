@@ -25,13 +25,13 @@ def parse_arguments():
 	parser = argparse.ArgumentParser(description='TA Knowledge Distillation Code')
 	parser.add_argument('--epochs', default=160, type=int,  help='number of total epochs to run')
 	parser.add_argument('--dataset', default='cifar10', type=str, help='dataset. can be either cifar10 or cifar100')
-	parser.add_argument('--batch-size', default=128, type=int, help='batch_size')
+	parser.add_argument('--batch_size', default=80, type=int, help='batch_size')
 	parser.add_argument('--learning-rate', default=0.1, type=float, help='initial learning rate')
 	parser.add_argument('--momentum', default=0.9, type=float,  help='SGD momentum')
 	parser.add_argument('--weight-decay', default=1e-4, type=float, help='SGD weight decay (default: 1e-4)')
-	parser.add_argument('--teacher', default='resnet110', type=str, help='teacher student name')
-	parser.add_argument('--student', '--model', default='DARTS', type=str, help='teacher student name')
-	parser.add_argument('--teacher-checkpoint', default='resnet110_cifar10_T_best.pth.tar', type=str, help='optinal pretrained checkpoint for teacher')
+	parser.add_argument('--teacher', default='DARTS', type=str, help='teacher student name')
+	parser.add_argument('--student', '--model', default='resnet8', type=str, help='teacher student name')
+	parser.add_argument('--teacher-checkpoint', default='DARTS_01_best.pth.tar', type=str, help='optinal pretrained checkpoint for teacher')
 	parser.add_argument('--cuda', default=1, type=str2bool, help='whether or not use cuda(train on GPU)')
 	parser.add_argument('--dataset-dir', default='./data', type=str,  help='dataset directory')
 	parser.add_argument('--arch', type=str, default='DARTS', help='which architecture to use')
@@ -84,22 +84,31 @@ class TrainManager(object):
 			self.student.train()
 			self.adjust_learning_rate(self.optimizer, epoch)
 			loss = 0
+			print('-------------')
+			max_lenth = len(self.train_loader)
 			for batch_idx, (data, target) in enumerate(self.train_loader):
 				iteration += 1
 				data = data.to(self.device)
 				target = target.to(self.device)
 				self.optimizer.zero_grad()
-				output = self.student(data)
+				if args.student == 'DARTS':
+					output, _ = self.student(data)
+				else:
+					output = self.student(data)
+				print('current epoch: ', str(epoch), 'current process:', str(batch_idx/max_lenth))
 				# Standard Learning Loss ( Classification Loss)
-				loss_SL = criterion(output, target) 
+				loss_SL = criterion(output, target)
 				loss = loss_SL
-				
+
 				if self.have_teacher:
-					teacher_outputs = self.teacher(data)
+					if args.teacher == 'DARTS':
+						teacher_outputs, _ = self.teacher(data)
+					else:
+						teacher_outputs = self.teacher(data)
 					# Knowledge Distillation Loss
 					loss_KD = nn.KLDivLoss()(F.log_softmax(output / T, dim=1), F.softmax(teacher_outputs / T, dim=1))
 					loss = (1 - lambda_) * loss_SL + lambda_ * T * T * loss_KD
-					
+
 				loss.backward()
 				self.optimizer.step()
 			
@@ -120,7 +129,10 @@ class TrainManager(object):
 			for images, labels in self.test_loader:
 				images = images.to(self.device)
 				labels = labels.to(self.device)
-				outputs = self.student(images)
+				if args.student == 'DARTS':
+					outputs, _ = self.student(images)
+				else:
+					outputs = self.student(images)
 				_, predicted = torch.max(outputs.data, 1)
 				total += labels.size(0)
 				correct += (predicted == labels).sum().item()
@@ -179,14 +191,12 @@ if __name__ == "__main__":
 	dataset = args.dataset
 	num_classes = 100 if dataset == 'cifar100' else 'cifar10'
 	teacher_model = None
-	# student_model = create_cnn_model(args.student, dataset, use_cuda=args.cuda)
-	genotype = eval("genotypes.%s" % args.arch)
-	student_model = Network(36, 10, 20, True, genotype)
-	student_model.cuda()
-	utils.load(student_model, 'cifar10_model.pt')
-	student_model.drop_path_prob = 0.2
-
-
+	student_model = create_cnn_model(args.student, dataset, use_cuda=args.cuda)
+	# genotype = eval("genotypes.%s" % args.arch)
+	# student_model = Network(36, 10, 20, True, genotype)
+	# student_model.cuda()
+	# utils.load(student_model, 'cifar10_model.pt')
+	# student_model.drop_path_prob = 0.2
 
 	train_config = {
 		'epochs': args.epochs,
@@ -200,11 +210,16 @@ if __name__ == "__main__":
 		'lambda_student': config.get('lambda_student'),
 	}
 	
-	
 	# Train Teacher if provided a teacher, otherwise it's a normal training using only cross entropy loss
 	# This is for training single models(NOKD in paper) for baselines models (or training the first teacher)
 	if args.teacher:
-		teacher_model = create_cnn_model(args.teacher, dataset, use_cuda=args.cuda)
+		if args.teacher == 'DARTS':
+			genotype = eval("genotypes.%s" % args.arch)
+			teacher_model = Network(36, 10, 20, True, genotype)
+			teacher_model.cuda()
+			teacher_model.drop_path_prob = 0.2
+		else:
+			teacher_model = create_cnn_model(args.teacher, dataset, use_cuda=args.cuda)
 		if args.teacher_checkpoint:
 			print("---------- Loading Teacher -------")
 			teacher_model = load_checkpoint(teacher_model, args.teacher_checkpoint)
@@ -219,9 +234,13 @@ if __name__ == "__main__":
 			teacher_model = load_checkpoint(teacher_model, os.path.join('./', teacher_name))
 			
 	# Student training
+
+	print("Teacher param size = %fMB", utils.count_parameters_in_MB(teacher_model))
+	print("Student param size = %fMB", utils.count_parameters_in_MB(student_model))
+
 	print("---------- Training Student -------")
 	student_train_config = copy.deepcopy(train_config)
-	train_loader, test_loader = get_cifar(num_classes)
+	train_loader, test_loader = get_cifar(num_classes, batch_size=args.batch_size)
 	student_train_config['name'] = args.student
 	student_trainer = TrainManager(student_model, teacher=teacher_model, train_loader=train_loader, test_loader=test_loader, train_config=student_train_config)
 	best_student_acc = student_trainer.train()
