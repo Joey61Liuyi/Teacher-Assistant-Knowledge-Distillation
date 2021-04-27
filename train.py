@@ -19,16 +19,16 @@ def str2bool(v):
 	
 def parse_arguments():
 	parser = argparse.ArgumentParser(description='TA Knowledge Distillation Code')
-	parser.add_argument('--epochs', default=200, type=int,  help='number of total epochs to run')
-	parser.add_argument('--dataset', default='cifar100', type=str, help='dataset. can be either cifar10 or cifar100')
+	parser.add_argument('--epochs', default=160, type=int,  help='number of total epochs to run')
+	parser.add_argument('--dataset', default='cifar10', type=str, help='dataset. can be either cifar10 or cifar100')
 	parser.add_argument('--batch-size', default=128, type=int, help='batch_size')
 	parser.add_argument('--learning-rate', default=0.1, type=float, help='initial learning rate')
 	parser.add_argument('--momentum', default=0.9, type=float,  help='SGD momentum')
 	parser.add_argument('--weight-decay', default=1e-4, type=float, help='SGD weight decay (default: 1e-4)')
-	parser.add_argument('--teacher', default='', type=str, help='teacher student name')
-	parser.add_argument('--student', '--model', default='resnet8', type=str, help='teacher student name')
-	parser.add_argument('--teacher-checkpoint', default='', type=str, help='optinal pretrained checkpoint for teacher')
-	parser.add_argument('--cuda', default=False, type=str2bool, help='whether or not use cuda(train on GPU)')
+	parser.add_argument('--teacher', default='resnet110', type=str, help='teacher student name')
+	parser.add_argument('--student', '--model', default='Plane6', type=str, help='teacher student name')
+	parser.add_argument('--teacher-checkpoint', default='resnet110_cifar10_T_best.pth.tar', type=str, help='optinal pretrained checkpoint for teacher')
+	parser.add_argument('--cuda', default=1, type=str2bool, help='whether or not use cuda(train on GPU)')
 	parser.add_argument('--dataset-dir', default='./data', type=str,  help='dataset directory')
 	args = parser.parse_args()
 	return args
@@ -166,6 +166,8 @@ if __name__ == "__main__":
 	args = parse_arguments()
 	print(args)
 	config = nni.get_next_parameter()
+	config = {"lambda_student": 0.5, "T_student": 5, "seed": 20}
+
 	torch.manual_seed(config['seed'])
 	torch.cuda.manual_seed(config['seed'])
 	trial_id = os.environ.get('NNI_TRIAL_JOB_ID')
