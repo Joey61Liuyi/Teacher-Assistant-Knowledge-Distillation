@@ -29,7 +29,7 @@ def parse_arguments():
 	parser.add_argument('--learning-rate', default=0.1, type=float, help='initial learning rate')
 	parser.add_argument('--momentum', default=0.9, type=float,  help='SGD momentum')
 	parser.add_argument('--weight-decay', default=1e-4, type=float, help='SGD weight decay (default: 1e-4)')
-	parser.add_argument('--teacher', default='resnet8', type=str, help='teacher student name')n
+	parser.add_argument('--teacher', default='resnet8', type=str, help='teacher student name')
 	parser.add_argument('--student', '--model', default='resnet8', type=str, help='teacher student name')
 	parser.add_argument('--teacher-checkpoint', default='resnet8_02_best.pth.tar', type=str, help='optinal pretrained checkpoint for teacher')
 	parser.add_argument('--cuda', default=1, type=str2bool, help='whether or not use cuda(train on GPU)')
