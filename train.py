@@ -29,9 +29,9 @@ def parse_arguments():
 	parser.add_argument('--learning-rate', default=0.1, type=float, help='initial learning rate')
 	parser.add_argument('--momentum', default=0.9, type=float,  help='SGD momentum')
 	parser.add_argument('--weight-decay', default=1e-4, type=float, help='SGD weight decay (default: 1e-4)')
-	parser.add_argument('--teacher', default='resnet110', type=str, help='teacher student name')
-	parser.add_argument('--student', '--model', default='DARTS', type=str, help='teacher student name')
-	parser.add_argument('--teacher-checkpoint', default='resnet110_cifar10_T_best.pth.tar', type=str, help='optinal pretrained checkpoint for teacher')
+	parser.add_argument('--teacher', default='resnet8', type=str, help='teacher student name')n
+	parser.add_argument('--student', '--model', default='resnet8', type=str, help='teacher student name')
+	parser.add_argument('--teacher-checkpoint', default='resnet8_02_best.pth.tar', type=str, help='optinal pretrained checkpoint for teacher')
 	parser.add_argument('--cuda', default=1, type=str2bool, help='whether or not use cuda(train on GPU)')
 	parser.add_argument('--dataset-dir', default='./data', type=str,  help='dataset directory')
 	parser.add_argument('--arch', type=str, default='DARTS', help='which architecture to use')
@@ -189,16 +189,19 @@ if __name__ == "__main__":
 	torch.manual_seed(config['seed'])
 	torch.cuda.manual_seed(config['seed'])
 	# trial_id = os.environ.get('NNI_TRIAL_JOB_ID')
-	trial_id = '01'
+	trial_id = '02'
 	dataset = args.dataset
 	num_classes = 100 if dataset == 'cifar100' else 'cifar10'
 	teacher_model = None
-	# student_model = create_cnn_model(args.student, dataset, use_cuda=args.cuda)
-	genotype = eval("genotypes.%s" % args.arch)
-	student_model = Network(36, 10, layer, True, genotype)
-	student_model.cuda()
-	# utils.load(student_model, 'cifar10_model.pt')
-	student_model.drop_path_prob = 0.2
+	if args.student == 'DARTS':
+		genotype = eval("genotypes.%s" % args.arch)
+		student_model = Network(36, 10, layer, True, genotype)
+		student_model.cuda()
+		# utils.load(student_model, 'cifar10_model.pt')
+		student_model.drop_path_prob = 0.2
+	else:
+		student_model = create_cnn_model(args.student, dataset, use_cuda=args.cuda)
+
 
 	train_config = {
 		'epochs': args.epochs,
@@ -225,6 +228,13 @@ if __name__ == "__main__":
 		if args.teacher_checkpoint:
 			print("---------- Loading Teacher -------")
 			teacher_model = load_checkpoint(teacher_model, args.teacher_checkpoint)
+			train_loader, test_loader = get_cifar(num_classes)
+			teacher_train_config = copy.deepcopy(train_config)
+			teacher_train_config['name'] = args.teacher
+			teacher_trainer = TrainManager(teacher_model, teacher=None, train_loader=train_loader,test_loader=test_loader, train_config=teacher_train_config)
+			acc = teacher_trainer.validate()
+			print('Teacher ACC:', acc)
+
 		else:
 			print("---------- Training Teacher -------")
 			train_loader, test_loader = get_cifar(num_classes)
