@@ -11,6 +11,7 @@ import utils
 from model import NetworkCIFAR as Network
 import genotypes
 from data_loader import get_cifar
+import pandas as pd
 from model_factory import create_cnn_model, is_resnet
 
 
@@ -80,6 +81,8 @@ class TrainManager(object):
 		iteration = 0
 		best_acc = 0
 		criterion = nn.CrossEntropyLoss()
+		training_process = pd.DataFrame(columns=['epochs', 'acc'])
+
 		for epoch in range(epochs):
 			self.student.train()
 			self.adjust_learning_rate(self.optimizer, epoch)
@@ -114,11 +117,13 @@ class TrainManager(object):
 			
 			print("epoch {}/{}".format(epoch, epochs))
 			val_acc = self.validate(step=epoch)
+			training_process.append([{'epochs': epoch, 'acc': val_acc}])
+
 			if val_acc > best_acc:
 				best_acc = val_acc
 				self.save(epoch, name='{}_{}_best.pth.tar'.format(self.name, trial_id))
 		
-		return best_acc
+		return best_acc, training_process
 	
 	def validate(self, step=0):
 		self.student.eval()
@@ -242,7 +247,7 @@ if __name__ == "__main__":
 			teacher_name = '{}_{}_best.pth.tar'.format(args.teacher, trial_id)
 			teacher_train_config['name'] = args.teacher
 			teacher_trainer = TrainManager(teacher_model, teacher=None, train_loader=train_loader, test_loader=test_loader, train_config=teacher_train_config)
-			teacher_trainer.train()
+			best_teacher_acc, process_form = teacher_trainer.train()
 			teacher_model = load_checkpoint(teacher_model, os.path.join('./', teacher_name))
 			
 	# Student training
@@ -255,5 +260,6 @@ if __name__ == "__main__":
 	train_loader, test_loader = get_cifar(num_classes, batch_size=args.batch_size)
 	student_train_config['name'] = args.student
 	student_trainer = TrainManager(student_model, teacher=teacher_model, train_loader=train_loader, test_loader=test_loader, train_config=student_train_config)
-	best_student_acc = student_trainer.train()
+	best_student_acc, process_form = student_trainer.train()
+	process_form.to_csv(args.student+'_'+train_config['trial_id']+'.csv')
 	nni.report_final_result(best_student_acc)
