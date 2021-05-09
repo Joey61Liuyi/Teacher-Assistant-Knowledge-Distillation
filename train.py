@@ -31,7 +31,7 @@ def parse_arguments():
 	parser.add_argument('--momentum', default=0.9, type=float,  help='SGD momentum')
 	parser.add_argument('--weight-decay', default=1e-4, type=float, help='SGD weight decay (default: 1e-4)')
 	parser.add_argument('--teacher', default='resnet8', type=str, help='teacher student name')
-	parser.add_argument('--student', '--model', default='resnet8', type=str, help='teacher student name')
+	parser.add_argument('--student', '--model', default='DARTS', type=str, help='teacher student name')
 	parser.add_argument('--teacher-checkpoint', default='resnet8_02_best.pth.tar', type=str, help='optinal pretrained checkpoint for teacher')
 	parser.add_argument('--cuda', default=1, type=str2bool, help='whether or not use cuda(train on GPU)')
 	parser.add_argument('--dataset-dir', default='./data', type=str,  help='dataset directory')
@@ -135,7 +135,7 @@ class TrainManager(object):
 				images = images.to(self.device)
 				labels = labels.to(self.device)
 				if args.student == 'DARTS':
-					outputs, _ = self.student(images)
+					outputs = self.student(images)
 				else:
 					outputs = self.student(images)
 				_, predicted = torch.max(outputs.data, 1)
@@ -184,7 +184,7 @@ class TrainManager(object):
 
 if __name__ == "__main__":
 
-	layer = 9
+	layer = 6
 	# Parsing arguments and prepare settings for training
 	args = parse_arguments()
 	print(args)
