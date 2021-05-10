@@ -26,13 +26,13 @@ def parse_arguments():
 	parser = argparse.ArgumentParser(description='TA Knowledge Distillation Code')
 	parser.add_argument('--epochs', default=160, type=int,  help='number of total epochs to run')
 	parser.add_argument('--dataset', default='cifar10', type=str, help='dataset. can be either cifar10 or cifar100')
-	parser.add_argument('--batch_size', default=80, type=int, help='batch_size')
+	parser.add_argument('--batch_size', default=128, type=int, help='batch_size')
 	parser.add_argument('--learning-rate', default=0.1, type=float, help='initial learning rate')
 	parser.add_argument('--momentum', default=0.9, type=float,  help='SGD momentum')
 	parser.add_argument('--weight-decay', default=1e-4, type=float, help='SGD weight decay (default: 1e-4)')
-	parser.add_argument('--teacher', default='resnet8', type=str, help='teacher student name')
-	parser.add_argument('--student', '--model', default='DARTS', type=str, help='teacher student name')
-	parser.add_argument('--teacher-checkpoint', default='resnet8_02_best.pth.tar', type=str, help='optinal pretrained checkpoint for teacher')
+	parser.add_argument('--teacher', default='DARTS', type=str, help='teacher student name')
+	parser.add_argument('--student', '--model', default='plane2', type=str, help='teacher student name')
+	parser.add_argument('--teacher-checkpoint', default='DARTS_GDAS4_best.pth.tar', type=str, help='optinal pretrained checkpoint for teacher')
 	parser.add_argument('--cuda', default=1, type=str2bool, help='whether or not use cuda(train on GPU)')
 	parser.add_argument('--dataset-dir', default='./data', type=str,  help='dataset directory')
 	parser.add_argument('--arch', type=str, default='DARTS', help='which architecture to use')
@@ -105,7 +105,7 @@ class TrainManager(object):
 
 				if self.have_teacher:
 					if args.teacher == 'DARTS':
-						teacher_outputs, _ = self.teacher(data)
+						teacher_outputs = self.teacher(data)
 					else:
 						teacher_outputs = self.teacher(data)
 					# Knowledge Distillation Loss
@@ -117,7 +117,7 @@ class TrainManager(object):
 			
 			print("epoch {}/{}".format(epoch, epochs))
 			val_acc = self.validate(step=epoch)
-			training_process.append([{'epochs': epoch, 'acc': val_acc}])
+			training_process = training_process.append([{'epochs': epoch, 'acc': val_acc}])
 
 			if val_acc > best_acc:
 				best_acc = val_acc
@@ -184,7 +184,7 @@ class TrainManager(object):
 
 if __name__ == "__main__":
 
-	layer = 6
+	layer = 4
 	# Parsing arguments and prepare settings for training
 	args = parse_arguments()
 	print(args)
@@ -194,7 +194,7 @@ if __name__ == "__main__":
 	torch.manual_seed(config['seed'])
 	torch.cuda.manual_seed(config['seed'])
 	# trial_id = os.environ.get('NNI_TRIAL_JOB_ID')
-	trial_id = '02'
+	trial_id = 'GDAS4'
 	dataset = args.dataset
 	num_classes = 100 if dataset == 'cifar100' else 'cifar10'
 	teacher_model = None
