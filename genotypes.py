@@ -141,7 +141,44 @@ GDAS = Genotype(normal=[
 # )
 
 
-{'normal': [], 'normal_concat': [2, 3, 4, 5], 'reduce': [], 'reduce_concat': [2, 3, 4, 5]}
+GDAS45 = Genotype(normal=[
+  ('max_pool_3x3', 0, 0.12995027),
+  ('skip_connect', 0, 0.12970404),
+  ('max_pool_3x3', 0, 0.13387772),
+  ('skip_connect', 0, 0.13102455),
+  ('max_pool_3x3', 0, 0.13645826),
+  ('skip_connect', 0, 0.1298444),
+  ('max_pool_3x3', 0, 0.13580783),
+  ('skip_connect', 0, 0.13144067)],
+  normal_concat = [2, 3, 4, 5], reduce=[
+    ('max_pool_3x3', 0, 0.12797163),
+    ('max_pool_3x3', 1, 0.12711793),
+    ('max_pool_3x3', 0, 0.13074362),
+    ('max_pool_3x3', 1, 0.12945251),
+    ('max_pool_3x3', 0, 0.13271224),
+    ('max_pool_3x3', 1, 0.12949866),
+    ('max_pool_3x3', 0, 0.13348287),
+    ('max_pool_3x3', 1, 0.12952884)],
+  reduce_concat = [2, 3, 4, 5]
+)
+
+
+GDAS35 = Genotype(normal=[
+  ('dua_sepc_5x5', 1, 0.12722158), ('max_pool_3x3', 0, 0.12700416),
+  ('max_pool_3x3', 0, 0.12965296), ('skip_connect', 0, 0.12822348),
+  ('max_pool_3x3', 0, 0.12948422), ('skip_connect', 0, 0.12860462),
+  ('max_pool_3x3', 0, 0.1305469), ('skip_connect', 0, 0.1292074)],
+  normal_concat = [2, 3, 4, 5], reduce=[
+    ('max_pool_3x3', 0, 0.12733576), ('max_pool_3x3', 1, 0.12667398),
+    ('max_pool_3x3', 0, 0.12858719), ('max_pool_3x3', 1, 0.12816754),
+    ('max_pool_3x3', 0, 0.12855445), ('max_pool_3x3', 1, 0.12824358),
+    ('max_pool_3x3', 0, 0.12944973), ('max_pool_3x3', 1, 0.12843342)],
+  reduce_concat = [2, 3, 4, 5]
+)
+
+
+{'normal': [], 'normal_concat': [2, 3, 4, 5],
+ 'reduce': [], 'reduce_concat': [2, 3, 4, 5]}
 
 
 

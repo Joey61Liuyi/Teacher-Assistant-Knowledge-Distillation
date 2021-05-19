@@ -24,15 +24,16 @@ def str2bool(v):
 	
 def parse_arguments():
 	parser = argparse.ArgumentParser(description='TA Knowledge Distillation Code')
-	parser.add_argument('--epochs', default=160, type=int,  help='number of total epochs to run')
+	parser.add_argument('--epochs', default=5, type=int,  help='number of total epochs to run')
 	parser.add_argument('--dataset', default='cifar10', type=str, help='dataset. can be either cifar10 or cifar100')
 	parser.add_argument('--batch_size', default=128, type=int, help='batch_size')
 	parser.add_argument('--learning-rate', default=0.1, type=float, help='initial learning rate')
 	parser.add_argument('--momentum', default=0.9, type=float,  help='SGD momentum')
 	parser.add_argument('--weight-decay', default=1e-4, type=float, help='SGD weight decay (default: 1e-4)')
-	parser.add_argument('--teacher', default='DARTS', type=str, help='teacher student name')
-	parser.add_argument('--student', '--model', default='plane2', type=str, help='teacher student name')
-	parser.add_argument('--teacher-checkpoint', default='DARTS_GDAS4_best.pth.tar', type=str, help='optinal pretrained checkpoint for teacher')
+	parser.add_argument('--teacher', default='resnet110', type=str, help='teacher student name')
+	parser.add_argument('--TA', default='resnet14', type=str, help='teacher student name')
+	parser.add_argument('--student', '--model', default='resnet8', type=str, help='teacher student name')
+	parser.add_argument('--teacher-checkpoint', default='resnet110_cifar10_T_best.pth.tar', type=str, help='optinal pretrained checkpoint for teacher')
 	parser.add_argument('--cuda', default=1, type=str2bool, help='whether or not use cuda(train on GPU)')
 	parser.add_argument('--dataset-dir', default='./data', type=str,  help='dataset directory')
 	parser.add_argument('--arch', type=str, default='DARTS', help='which architecture to use')
@@ -194,18 +195,22 @@ if __name__ == "__main__":
 	torch.manual_seed(config['seed'])
 	torch.cuda.manual_seed(config['seed'])
 	# trial_id = os.environ.get('NNI_TRIAL_JOB_ID')
-	trial_id = 'GDAS4'
+	trial_id = 'combine_mode'
 	dataset = args.dataset
 	num_classes = 100 if dataset == 'cifar100' else 'cifar10'
 	teacher_model = None
-	if args.student == 'DARTS':
+
+	print(args.TA)
+	if args.TA == 'DARTS':
 		genotype = eval("genotypes.%s" % args.arch)
-		student_model = Network(36, 10, layer, True, genotype)
-		student_model.cuda()
+		TA_model = Network(36, 10, layer, True, genotype)
+		TA_model.cuda()
 		# utils.load(student_model, 'cifar10_model.pt')
-		student_model.drop_path_prob = 0.2
+		TA_model.drop_path_prob = 0.2
 	else:
-		student_model = create_cnn_model(args.student, dataset, use_cuda=args.cuda)
+		TA_model = create_cnn_model(args.TA, dataset, use_cuda=args.cuda)
+
+	student_model = create_cnn_model(args.student, dataset, use_cuda=args.cuda)
 
 
 	train_config = {
@@ -223,13 +228,9 @@ if __name__ == "__main__":
 	# Train Teacher if provided a teacher, otherwise it's a normal training using only cross entropy loss
 	# This is for training single models(NOKD in paper) for baselines models (or training the first teacher)
 	if args.teacher:
-		if args.teacher == 'DARTS':
-			genotype = eval("genotypes.%s" % args.arch)
-			teacher_model = Network(36, 10, layer, True, genotype)
-			teacher_model.cuda()
-			teacher_model.drop_path_prob = 0.2
-		else:
-			teacher_model = create_cnn_model(args.teacher, dataset, use_cuda=args.cuda)
+
+		teacher_model = create_cnn_model(args.teacher, dataset, use_cuda=args.cuda)
+
 		if args.teacher_checkpoint:
 			print("---------- Loading Teacher -------")
 			teacher_model = load_checkpoint(teacher_model, args.teacher_checkpoint)
@@ -251,15 +252,28 @@ if __name__ == "__main__":
 			teacher_model = load_checkpoint(teacher_model, os.path.join('./', teacher_name))
 			
 	# Student training
-
 	print("Teacher param size = %fMB", utils.count_parameters_in_MB(teacher_model))
+	print("Teaching assistant param size = %fMB", utils.count_parameters_in_MB(TA_model))
 	print("Student param size = %fMB", utils.count_parameters_in_MB(student_model))
+
+
+
+	print("---------- Training Teaching Assistant -------")
+	TA_train_config = copy.deepcopy(train_config)
+	train_loader, test_loader = get_cifar(num_classes, batch_size=args.batch_size)
+	TA_train_config['name'] = args.TA
+	TA_trainer = TrainManager(TA_model, teacher=teacher_model, train_loader=train_loader, test_loader=test_loader, train_config=TA_train_config)
+	best_TA_acc, process_form = TA_trainer.train()
+	process_form.to_csv(args.TA+'_'+train_config['trial_id']+'_TA.csv')
+	nni.report_final_result(best_TA_acc)
+
 
 	print("---------- Training Student -------")
 	student_train_config = copy.deepcopy(train_config)
 	train_loader, test_loader = get_cifar(num_classes, batch_size=args.batch_size)
 	student_train_config['name'] = args.student
-	student_trainer = TrainManager(student_model, teacher=teacher_model, train_loader=train_loader, test_loader=test_loader, train_config=student_train_config)
+	student_trainer = TrainManager(student_model, teacher=TA_model, train_loader=train_loader, test_loader=test_loader, train_config=student_train_config)
 	best_student_acc, process_form = student_trainer.train()
-	process_form.to_csv(args.student+'_'+train_config['trial_id']+'.csv')
+	process_form.to_csv(args.student+'_'+train_config['trial_id']+'_Student.csv')
 	nni.report_final_result(best_student_acc)
+
