@@ -54,16 +54,27 @@ def load_checkpoint(model, checkpoint_path):
 
 
 class TrainManager(object):
-	def __init__(self, student, teacher=None, train_loader=None, test_loader=None, train_config={}):
+	def __init__(self, student, TA, teacher=None, train_loader=None, test_loader=None, train_config={}):
 		self.student = student
+		self.TA = TA
 		self.teacher = teacher
 		self.have_teacher = bool(self.teacher)
+		self.have_TA = bool(self.TA)
 		self.device = train_config['device']
-		self.name = train_config['name']
-		self.optimizer = optim.SGD(self.student.parameters(),
+		self.TA_name = train_config['TA_name']
+		self.Student_name = train_config['Student_name']
+
+		self.Student_optimizer = optim.SGD(self.student.parameters(),
 								   lr=train_config['learning_rate'],
 								   momentum=train_config['momentum'],
 								   weight_decay=train_config['weight_decay'])
+
+		self.TA_optimizer = optim.SGD(self.TA.parameters(),
+								   lr=train_config['learning_rate'],
+								   momentum=train_config['momentum'],
+								   weight_decay=train_config['weight_decay'])
+
+
 		if self.have_teacher:
 			self.teacher.eval()
 			self.teacher.train(mode=False)
@@ -80,58 +91,99 @@ class TrainManager(object):
 		
 		max_val_acc = 0
 		iteration = 0
-		best_acc = 0
+		best_acc_TA = 0
+		best_acc_Student = 0
 		criterion = nn.CrossEntropyLoss()
-		training_process = pd.DataFrame(columns=['epochs', 'acc'])
+		training_process_student = pd.DataFrame(columns=['epochs', 'acc'])
+		training_process_TA = pd.DataFrame(columns=['epochs', 'acc'])
 
 		for epoch in range(epochs):
+			self.TA.train()
 			self.student.train()
-			self.adjust_learning_rate(self.optimizer, epoch)
+			self.adjust_learning_rate(self.Student_optimizer, epoch)
+			self.adjust_learning_rate(self.TA_optimizer, epoch)
 			loss = 0
 			print('-------------')
 			max_lenth = len(self.train_loader)
+
 			for batch_idx, (data, target) in enumerate(self.train_loader):
 				iteration += 1
 				data = data.to(self.device)
 				target = target.to(self.device)
-				self.optimizer.zero_grad()
-				if args.student == 'DARTS':
-					output, _ = self.student(data)
+				self.Student_optimizer.zero_grad()
+				self.TA_optimizer.zero_grad()
+
+				if args.TA == 'DARTS':
+					output_TA, _ = self.TA(data)
 				else:
-					output = self.student(data)
+					output_TA = self.TA(data)
+
 				print('current epoch: ', str(epoch), 'current process:', str(batch_idx/max_lenth))
 				# Standard Learning Loss ( Classification Loss)
-				loss_SL = criterion(output, target)
-				loss = loss_SL
+				loss_SL_TA = criterion(output_TA, target)
+				loss_TA = loss_SL_TA
 
 				if self.have_teacher:
-					if args.teacher == 'DARTS':
-						teacher_outputs = self.teacher(data)
-					else:
-						teacher_outputs = self.teacher(data)
+					teacher_outputs = self.teacher(data)
 					# Knowledge Distillation Loss
-					loss_KD = nn.KLDivLoss()(F.log_softmax(output / T, dim=1), F.softmax(teacher_outputs / T, dim=1))
-					loss = (1 - lambda_) * loss_SL + lambda_ * T * T * loss_KD
+					loss_KD_TA = nn.KLDivLoss()(F.log_softmax(output_TA / T, dim=1), F.softmax(teacher_outputs / T, dim=1))
+					loss_TA = (1 - lambda_) * loss_SL_TA + lambda_ * T * T * loss_KD_TA
 
-				loss.backward()
-				self.optimizer.step()
+				loss_TA.backward()
+				self.TA_optimizer.step()
+
+				output_Student = self.student(data)
+				loss_SL_Student = criterion(output_Student, target)
+				loss_Student = loss_SL_Student
+
+				if self.have_TA:
+					self.TA.eval()
+					TA_outputs = self.TA(data)
+					loss_KD_Student = nn.KLDivLoss()(F.log_softmax(output_Student / T, dim=1), F.softmax(TA_outputs / T, dim=1))
+					loss_Student = (1 - lambda_) * loss_SL_Student + lambda_ * T * T * loss_KD_Student
+
+				loss_Student.backward()
+				self.Student_optimizer.step()
 			
 			print("epoch {}/{}".format(epoch, epochs))
-			val_acc = self.validate(step=epoch)
-			training_process = training_process.append([{'epochs': epoch, 'acc': val_acc}])
+			val_acc_TA, val_acc_Student = self.validate(step=epoch)
+			training_process_TA = training_process_TA.append([{'epochs': epoch, 'acc': val_acc_TA}])
+			training_process_student = training_process_student.append([{'epochs': epoch, 'acc': val_acc_TA}])
 
-			if val_acc > best_acc:
-				best_acc = val_acc
-				self.save(epoch, name='{}_{}_best.pth.tar'.format(self.name, trial_id))
+			if val_acc_TA > best_acc_TA:
+				best_acc_TA = val_acc_TA
+				self.save_TA(epoch, name='{}_{}_best.pth.tar'.format(self.TA_name, trial_id))
+
+			if val_acc_Student > best_acc_Student:
+				best_acc_Student = val_acc_Student
+				self.save_Student(epoch, name='{}_{}_best.pth.tar'.format(self.Student_name, trial_id))
 		
-		return best_acc, training_process
+		return best_acc_TA, best_acc_Student, training_process_TA, training_process_student
 	
 	def validate(self, step=0):
+		self.TA.eval()
+		with torch.no_grad():
+			correct = 0
+			total = 0
+			for images, labels in self.test_loader:
+				images = images.to(self.device)
+				labels = labels.to(self.device)
+				if args.student == 'DARTS':
+					outputs = self.TA(images)
+				else:
+					outputs = self.TA(images)
+				_, predicted = torch.max(outputs.data, 1)
+				total += labels.size(0)
+				correct += (predicted == labels).sum().item()
+			# self.accuracy_history.append(acc)
+			acc_TA = 100 * correct / total
+			
+			print('{{"TA metric": "{}_val_accuracy", "value": {}}}'.format(self.TA_name, acc_TA))
+
 		self.student.eval()
 		with torch.no_grad():
 			correct = 0
 			total = 0
-			acc = 0
 			for images, labels in self.test_loader:
 				images = images.to(self.device)
 				labels = labels.to(self.device)
@@ -143,26 +195,46 @@ class TrainManager(object):
 				total += labels.size(0)
 				correct += (predicted == labels).sum().item()
 			# self.accuracy_history.append(acc)
-			acc = 100 * correct / total
-			
-			print('{{"metric": "{}_val_accuracy", "value": {}}}'.format(self.name, acc))
-			return acc
+			acc_Student = 100 * correct / total
+
+			print('{{"Student metric": "{}_val_accuracy", "value": {}}}'.format(self.Student_name, acc_Student))
+		return acc_TA, acc_Student
 	
-	def save(self, epoch, name=None):
+	def save_TA(self, epoch, name=None):
+		trial_id = self.config['trial_id']
+		if name is None:
+			torch.save({
+				'epoch': epoch,
+				'model_state_dict': self.TA.state_dict(),
+				'optimizer_state_dict': self.TA_optimizer.state_dict(),
+			}, '{}_{}_epoch{}.pth.tar'.format(self.TA_name, trial_id, epoch))
+		else:
+			torch.save({
+				'model_state_dict': self.TA.state_dict(),
+				'optimizer_state_dict': self.TA_optimizer.state_dict(),
+				'epoch': epoch,
+			}, name)
+
+
+	def save_Student(self, epoch, name=None):
 		trial_id = self.config['trial_id']
 		if name is None:
 			torch.save({
 				'epoch': epoch,
 				'model_state_dict': self.student.state_dict(),
-				'optimizer_state_dict': self.optimizer.state_dict(),
-			}, '{}_{}_epoch{}.pth.tar'.format(self.name, trial_id, epoch))
+				'optimizer_state_dict': self.Student_optimizer.state_dict(),
+			}, '{}_{}_epoch{}.pth.tar'.format(self.Student_name, trial_id, epoch))
 		else:
 			torch.save({
 				'model_state_dict': self.student.state_dict(),
-				'optimizer_state_dict': self.optimizer.state_dict(),
+				'optimizer_state_dict': self.Student_optimizer.state_dict(),
 				'epoch': epoch,
 			}, name)
-	
+
+
+
+
+
 	def adjust_learning_rate(self, optimizer, epoch):
 		epochs = self.config['epochs']
 		models_are_plane = self.config['is_plane']
@@ -234,20 +306,21 @@ if __name__ == "__main__":
 		if args.teacher_checkpoint:
 			print("---------- Loading Teacher -------")
 			teacher_model = load_checkpoint(teacher_model, args.teacher_checkpoint)
-			train_loader, test_loader = get_cifar(num_classes)
-			teacher_train_config = copy.deepcopy(train_config)
-			teacher_train_config['name'] = args.teacher
-			teacher_trainer = TrainManager(teacher_model, teacher=None, train_loader=train_loader,test_loader=test_loader, train_config=teacher_train_config)
-			acc = teacher_trainer.validate()
-			print('Teacher ACC:', acc)
+			# train_loader, test_loader = get_cifar(num_classes)
+			# teacher_train_config = copy.deepcopy(train_config)
+			# teacher_train_config['Student_name'] = args.teacher
+			# teacher_train_config['TA_name'] = None
+			# teacher_trainer = TrainManager(teacher_model, TA=None, teacher=None, train_loader=train_loader,test_loader=test_loader, train_config=teacher_train_config)
+			# acc = teacher_trainer.validate()
+			# print('Teacher ACC:', acc)
 
 		else:
 			print("---------- Training Teacher -------")
 			train_loader, test_loader = get_cifar(num_classes)
 			teacher_train_config = copy.deepcopy(train_config)
 			teacher_name = '{}_{}_best.pth.tar'.format(args.teacher, trial_id)
-			teacher_train_config['name'] = args.teacher
-			teacher_trainer = TrainManager(teacher_model, teacher=None, train_loader=train_loader, test_loader=test_loader, train_config=teacher_train_config)
+			teacher_train_config['Student_name'] = args.teacher
+			teacher_trainer = TrainManager(teacher_model, TA=None, teacher=None, train_loader=train_loader, test_loader=test_loader, train_config=teacher_train_config)
 			best_teacher_acc, process_form = teacher_trainer.train()
 			teacher_model = load_checkpoint(teacher_model, os.path.join('./', teacher_name))
 			
@@ -261,19 +334,12 @@ if __name__ == "__main__":
 	print("---------- Training Teaching Assistant -------")
 	TA_train_config = copy.deepcopy(train_config)
 	train_loader, test_loader = get_cifar(num_classes, batch_size=args.batch_size)
-	TA_train_config['name'] = args.TA
-	TA_trainer = TrainManager(TA_model, teacher=teacher_model, train_loader=train_loader, test_loader=test_loader, train_config=TA_train_config)
-	best_TA_acc, process_form = TA_trainer.train()
-	process_form.to_csv(args.TA+'_'+train_config['trial_id']+'_TA.csv')
+	TA_train_config['TA_name'] = args.TA
+	TA_train_config['Student_name'] = args.student
+	TA_trainer = TrainManager(TA_model, student_model, teacher=teacher_model, train_loader=train_loader, test_loader=test_loader, train_config=TA_train_config)
+	best_TA_acc, best_student_acc, process_form_TA, process_form_Student = TA_trainer.train()
+	process_form_TA.to_csv(args.TA+'_'+train_config['trial_id']+'_TA.csv')
+	process_form_Student.to_csv(args.student + '_' + train_config['trial_id'] + '_Student.csv')
+
 	nni.report_final_result(best_TA_acc)
-
-
-	print("---------- Training Student -------")
-	student_train_config = copy.deepcopy(train_config)
-	train_loader, test_loader = get_cifar(num_classes, batch_size=args.batch_size)
-	student_train_config['name'] = args.student
-	student_trainer = TrainManager(student_model, teacher=TA_model, train_loader=train_loader, test_loader=test_loader, train_config=student_train_config)
-	best_student_acc, process_form = student_trainer.train()
-	process_form.to_csv(args.student+'_'+train_config['trial_id']+'_Student.csv')
 	nni.report_final_result(best_student_acc)
-
